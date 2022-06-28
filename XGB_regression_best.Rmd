@@ -1,0 +1,269 @@
+---
+title: "Untitled"
+author: "Sarah Hsu"
+date: "5/23/2022"
+output: html_document
+---
+
+```{r}
+library(xgboost)
+library(magrittr)
+library(dplyr)
+library(Matrix)
+library(tidyverse)
+library(caret)
+library(DiagrammeR)
+library(e1071)
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(ggpubr)
+```
+
+
+```{r}
+df <- read.csv('/Users/xutingxuan/Desktop/MSc ADS/Thesis/Code/data/VSNU_training.csv', header=TRUE)
+
+```
+
+
+```{r}
+# assign vector
+ind <- NULL
+ind[1:40] <- 1
+ind[c(5,10,15,20,25,30,35,40)] <- 2 # 2019 as prediction
+df_train <- df
+
+set.seed(444)
+ind <- sample(2, nrow(df_train), replace = T, prob = c(0.8, 0.2))
+
+# Partition data
+
+
+train_train <- df_train[ind==1,]
+train_test <- df_train[ind==2,]
+#train_train <- df_train[c(1:7),] # 2011- 2017
+#train_test <- df_train[c(8:9),] # 2018 - 1029
+
+train_x = data.matrix(train_train[, -10])
+train_y = data.matrix(train_train[,10])
+
+test_x = data.matrix(train_test[, -10])
+test_y = data.matrix(train_test[, 10])
+
+#Fitting the xgb model
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+```
+
+
+Tuning
+```{r}
+#defining a watchlist
+watchlist = list(train=xgb_train, test=xgb_test)
+#fit XGBoost model and display training and testing data at each iteartion
+model = xgb.train(data = xgb_train, 
+                  max.depth =3,
+                  eta = 0.2, 
+                  min_child_weight=3, 
+                  #early_stopping_rounds = 50,
+                  watchlist=watchlist, 
+                  nrounds = 50)
+
+#fine tune model
+e <- data.frame(model$evaluation_log)
+min(e$test_rmse)
+e[e$test_rmse == min(e$test_rmse),]
+
+```
+
+
+```{r}
+plot(e$iter, e$train_rmse, col = 'blue', xlab = 'Training Iterations', ylab='RMSE',type = "b", lty = 1)
+lines(e$iter, e$test_rmse, col = 'red')
+
+legend(x = 35, y = 60,  legend = c("train_RMSE", "test_RMSE"), 
+       col = c("blue", "red"), cex = 1, lty = c(1, 1), pch = c(21,NA))
+```
+
+
+```{r}
+###
+xgbc = xgboost(data = xgb_train, 
+               max.depth = 3, 
+               nrounds = 25, 
+               eta = 0.2, 
+               nfold =3,
+               min_child_weight=3)
+
+#summary(xgbc)
+pred_y = predict(xgbc, xgb_test)
+
+```
+
+
+```{r}
+library(Metrics)
+#MAE
+
+mape(actual= test_y, predicted = pred_y)
+mae(actual= test_y, predicted = pred_y)
+rmse(actual= test_y, predicted = pred_y)
+# MSE
+mse <- function(y_pred, y_true) {
+  mean((y_pred - y_true)^2)
+}
+
+mse(pred_y, test_y)
+#628
+#572, 135
+
+MAPE <- mape(actual= test_y, predicted = pred_y)
+cat('Accuracy :' ,1-MAPE)
+```
+111
+[1] 0.1500942
+[1] 10.19536
+[1] 10.70377
+[1] 114.5707
+
+444
+[1] 0.1149734
+[1] 4.594189
+[1] 7.234017
+[1] 52.331
+
+666 (85%)
+[1] 0.1749291
+[1] 8.603448
+[1] 9.690365
+[1] 93.90317
+666 (80%)
+[1] 0.1906605
+[1] 7.758639
+[1] 9.31776
+[1] 86.82064
+
+444 (8/2)
+xgbc = xgboost(data = xgb_train, 
+               max.depth = 3, 
+               nrounds = 25, 
+               eta = 0.2, 
+               nfold =3,
+               min_child_weight=3)
+
+
+
+```{r}
+#Visualize the predicted performance
+#https://www.csdn.net/tags/OtTaUg1sOTgxMTktYmxvZwO0O0OO0O0O.html
+x = 1:length(test_y)
+plot(x, test_y, col = "red", type = "b", pch = 16, cex = 1.2)
+lines(x, pred_y, col = "blue", type = "b", pch = 17, lty = 2,cex = 1.2)
+legend(x = 1, y = 150,  legend = c("actual test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 1, lty = c(1, 2),pch=c(16,17))
+```
+
+```{r}
+# Feature importance
+imp <- xgb.importance(colnames(xgb_train), model = xgbc)
+print(imp)
+xgb.plot.importance(imp, xlab='Feature importance')
+```
+```{r}
+# Compute feature importance matrix
+importance_matrix = xgb.importance(colnames(xgb_train), model = xgbc)
+importance_matrix
+#xgb.plot.importance(importance_matrix[1:9,])
+```
+
+
+```{r}
+# train with all
+# Partition data
+train_all <- df
+
+train_x_all = data.matrix(train_all[, -10])
+train_y_all = data.matrix(train_all[,10])
+
+xgb_train_all = xgb.DMatrix(data = train_x_all, label = train_y_all)
+#xgb_testf = xgb.DMatrix(data = test_xf, label = test_yf)
+
+
+ctrl <- trainControl(method = "LOOCV")
+#fit XGBoost model and display training and testing data at each iteartion
+xgbc_all = xgboost(data = xgb_train_all, 
+               max.depth = 3, 
+               nrounds = 25, 
+               eta = 0.2, 
+               nfold =3,
+              # trControl = ctrl, #LOOCV
+               min_child_weight=3)
+print(xgbc_all)
+```
+
+
+Predict the MA_total in 2020
+```{r}
+# 2020:65
+# best: 74.13510 71.84563 88.49384 75.99889 76.21419
+
+#67.17614 72.59231 79.31351 76.64377 76.64377
+
+#df_pred <- read.csv('/Users/xutingxuan/Desktop/MSc ADS/Thesis/Code/simulation_data_2025_0529.csv', header=TRUE)
+df_pred <- read.csv('/Users/xutingxuan/Desktop/MSc ADS/Thesis/Code/VSNU_simulation_UU.csv', header=TRUE)
+names(df_pred)[1] <- 'Year'
+
+df_test <- df_pred[c(11,12,13,14,15),]
+df_test$MA_CS<- 0
+
+test_xf = data.matrix(df_test[, c(-10)])
+test_yf = data.matrix(df_test[, 10])
+
+xgb_testf = xgb.DMatrix(data = test_xf, label = test_yf)
+
+pred_yf = predict(xgbc_all, xgb_testf)
+pred_yf = round(pred_yf)
+
+
+df_pred[c(11:15),]$MA_CS <- pred_yf # update prediction to df
+
+df_pred$label[c(1:15)] <-'actual'
+df_pred$label[c(11:15)] <- 'predicted'
+df_pred
+
+ggplot(df_pred, aes(x= factor(Year), MA_CS, color = label)) +
+  geom_point() +
+  geom_line(aes(group = 1)) + 
+  labs(x= "Year", 
+       y= "The number of students", 
+       title = "The influx of Master's student in Computing Science") +
+  theme(axis.text.x = element_text(angle = 45, size = 8)) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"))
+```
+
+
+```{r}
+library(Metrics)
+#MAE
+actual = 65
+forecasting = 67
+
+mape(actual= actual, predicted = forecasting)
+mae(actual= actual, predicted = forecasting)
+rmse(actual= actual, predicted = forecasting)
+# MSE
+mse <- function(y_pred, y_true) {
+  mean((y_pred - y_true)^2)
+}
+
+mse(forecasting, actual)
+#628
+#572, 135
+```
+
+```{r}
+df_pred$MA_CS
+```
+
